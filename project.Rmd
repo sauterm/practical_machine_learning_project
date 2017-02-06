@@ -1,0 +1,237 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Derek McLoughlin"
+date: "26 Sept 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This document outlines the machine learning analysis performed on 
+a data set of exercise routines collected by a wearable device.
+
+The goal of the analysis is to devise a model which will predict
+the manner in which a particular set of exercises was done.
+
+## Overview of Training and Test Data
+
+The traing data is available 
+here: [Training Data](https://d396qusza40orc.cloudfront.net/predmachlearn/pmltraining.csv).
+
+The test data is available
+here: [Test Data](https://d396qusza40orc.cloudfront.net/predmachlearn/pmltesting.csv).
+
+We can see a histogram of the outcome variable we're interested in: `classe`. It
+has a roughly even distribution of values.
+
+```{r, message=FALSE, results='hide'}
+library(caret)
+library(rattle)
+
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+# The outcome we're interested in
+plot(training$classe)
+```
+
+The training data consists of over 19K observations of 160 features. A quick look at the training data shows up a lot of columns where the values 
+are mostly NA or empty. We can see this using the following code:
+
+```{r}
+# For each column sum up the number of NA or empty values
+missing_data_sums <- colSums(is.na(training) | training == "") 
+hist(missing_data_sums)
+empty_cols <- names(missing_data_sums[missing_data_sums > 19000])
+```
+
+There are about such 100 columns. The histogram shows that there is a big break in the number of missing
+columns - in other words either a column has a lot of data or has very little data, but nothing inbetween.
+
+Let's remove these columns from our training set:
+
+```{r}
+training_2 <- training[, !(colnames(training) %in% empty_cols)]
+```
+
+This leaves us with 60 columns that are mostly populated.
+
+One variable I'd like to take out is "X". It's a row number of some sort:
+
+```{r}
+training_2 <- training_2[ , -which(names(training_2) %in% c("X"))]
+```
+
+Finally, let's shuffle the data to ensure that any previous ordering
+doesn't affect our results:
+
+```{r}
+training_2 <- training_2[sample(nrow(training_2 )), ]
+```
+
+## Training Data Set and Cross Validation Data Set
+
+The training data set still has a lot of rows. Naievely putting this into a
+machine learning algorithm can take quite a while to run, so let's split
+the data into a smaller training set and also a cross-validation data set.
+
+Starting with a training data set of size N = 1000, and a cross-valiation
+data set also of N=1000, we can quickly see if various ML algorithms work
+and which ones to focus on.
+
+```{r}
+# Subset of this for actual training 
+training_3 <- training_2[1:1000,]
+# Take the next 1000 entries for cross-validation
+cross_val <- training_2[1001:2000,]
+```
+
+Once we've seen some initial results, we can increase the size of the training
+data set (but not the cross-validation one) to see how accuracy improves.
+
+## Machine Learning Algorithms Used
+
+We try four different ML methods with different training set sizes:
+
+* Linear Discriminant Analysis - LDA
+* Classification Trees - Rpart
+* Random Forests - RF
+* Generalized Boosted Regression Models - GBM
+
+Random Forests and GBM were chosen in particular because they handle
+data sets with a large number of features very well.
+
+For each method we measure the accuracy of the model 
+in the cross-valiation data set.
+
+## Code for each run
+
+The code for each run is exactly the same. Only the size of the training set is different. 
+Simple timings using `Sys.time()` are used to show how long each run took.
+
+### LDA
+
+```{r, eval=FALSE}
+# LDA
+modelLDA <- train(classe ~ ., method="lda", data=training_3)
+predsLDA <- predict(modelLDA, newdata = cross_val)
+crosstabLDA <- table(predsLDA, cross_val$classe)
+accuracyLDA <- (sum(diag(crosstabLDA)) * 100)/1000
+```
+
+### Rpart
+
+```{r, eval=FALSE}
+modelRpart <- train(classe ~ ., method="rpart", data=training_3)
+predsRpart <- predict(modelRpart, newdata = cross_val)
+crosstabRpart <- table(predsRpart, cross_val$classe)
+accuracyRpart <- (sum(diag(crosstabRpart)) * 100)/1000
+```
+
+### RF
+
+```{r, eval=FALSE}
+modelRF <- train(classe ~ ., method="rf", data=training_3)
+predsRF <- predict(modelRF, newdata = cross_val)
+crosstabRF <- table(predsRF, cross_val$classe)
+accuracyRF <- (sum(diag(crosstabRF)) * 100)/1000
+```
+
+### GBM
+
+```{r, eval=FALSE}
+modelGBM <- train(classe ~ ., method="gbm", data=training_3)
+predsGBM <- predict(modelGBM, newdata = cross_val)
+crosstabGBM <- table(predsGBM, cross_val$classe)
+accuracyGBM <- (sum(diag(crosstabGBM)) * 100)/1000
+```
+
+## Accuracy Results
+
+For each machine learning method we plot the accuracy (in %) against
+the different training data set sizes.
+
+Method vs N | 1000 | 2000 | 5000 | 10000
+----------- | ---- | ---- | ---- | ----   
+LDA         | 81.7 | 84.3 | 86.3 | 86.2
+RPart       | 51.9 | 52.5 | 49.5 | 46.8
+RF          | 96.4 | 99.0 | 99.5 | 99.7
+GBM         | 96.8 | 98.9 | 99.4 | 99.6
+
+The RPart results are not great, and get worse with increasing N, whereas the others do improve. 
+
+## Prediction Results
+
+For each machine learing method we show the preditions on the
+test set for each training data set size.
+
+### LDA
+
+N     | Prediction
+----- | ---------------------------------------
+1000  | B A B A A E D B A A B C B A E E A B B B        
+2000  | B B B A A E D B A A B C B A E E A B B B        
+5000  | B B B A A E D C A A B C B A E E A B B B
+10000 | B B B A A E D C A A B C B A E E A B B B        
+
+The predictions are consistent with increasing N.
+
+### Rpart
+
+N     | Prediction
+----- | ---------------------------------------
+1000  | A A A A A C C C A A A C C A C C A A A C
+2000  | A A A A A C C C A A C C C A C C A A A C
+5000  | A A C A A C C C A A C C C A C C A A A C
+10000 | A A A A C C C C A A C C C A C C C A A C
+
+The predictions look odd - no Bs, Ds or Es.
+
+
+### RF
+
+N     | Prediction
+----- | ---------------------------------------
+1000  | B A A A A E D B A A B C B A E E A B B B
+2000  | B A A A A E D B A A B C B A E E A B B B
+5000  | B A B A A E D B A A B C B A E E A B B B
+10000 | B A B A A E D B A A B C B A E E A B B B
+
+The predictions here are very consistent, even with N relatively
+small.
+
+### GBM
+
+N     | Prediction
+----- | ---------------------------------------
+1000  | B A B A A E D B A A B C B A E E A B B B
+2000  | B A B A A E D B A A B C B A E E A B B B
+5000  | B A B A A E D B A A B C B A E E A B B B
+10000 | B A B A A E D B A A B C B A E E A B B B
+
+Again, the predictions here are very consistent, even with N relatively
+small.
+
+### Conclusion
+
+The RF and GBM predictions all agree with each other, regardless of 
+the choice of N, so we could conclude that setting N=1000 is good enough
+for our purposes using these algorithms. For LDA, you need a much higher
+value of N to get the same predictions.
+
+From a performance point of view, the Random Forests algorithm is the slowest
+to run, while the GBM one is about twice as fast as RF, even though its 
+accuracy is about the same as RF.
+
+We conclude that the use of a Generalised Boosted Model technique, as implemented using 
+the GBM R package, works very well for accurately predicting how well the subjects
+trained based on the training data provided.
+
+
+
+
+
